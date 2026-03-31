@@ -2,69 +2,64 @@ require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 
-// Load tokens
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const HOTELS_API_KEY = process.env.HOTELS_API_KEY;
+const SERPAPI_KEY = process.env.SERPAPI_KEY;
 
 if (!TELEGRAM_TOKEN) {
   console.error('ERROR: TELEGRAM_TOKEN not set in .env');
   process.exit(1);
 }
-
-if (!HOTELS_API_KEY) {
-  console.error('ERROR: HOTELS_API_KEY not set in .env');
+if (!SERPAPI_KEY) {
+  console.error('ERROR: SERPAPI_KEY not set in .env');
   process.exit(1);
 }
 
-// Create bot
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 console.log('SmartStay Finder Bot started...');
 
-// Real Hotels API search
 async function searchHotels(location) {
   try {
-    const url = `https://api.hotels-api.com/v1/hotels/search`;
-    const response = await axios.get(url, {
-      params: { city: location, limit: 10 },
-      headers: { 'X-API-KEY': HOTELS_API_KEY }
+    const response = await axios.get('https://serpapi.com/search', {
+      params: {
+        engine: 'google_hotels',
+        q: `hotels in ${location}`,
+        api_key: SERPAPI_KEY,
+        currency: 'USD',
+        gl: 'us',
+        hl: 'en',
+      }
     });
-
-    if (response.data && response.data.data) {
-      return response.data.data;
-    }
-    return [];
+    return response.data.properties || [];
   } catch (error) {
-    console.error('Hotel search API error:', error.message);
+    console.error('SerpApi error:', error.message);
     return [];
   }
 }
 
-// /start handler
 bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id, 'Welcome to SmartStay Finder! Send a city to search hotels.');
+  bot.sendMessage(msg.chat.id, 'Welcome to SmartStay Finder! 🏨\nSend me a city name to search for hotels.');
 });
 
-// Handle messages
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
-  if (text.startsWith('/start')) return;
+  if (text.startsWith('/')) return;
 
-  bot.sendMessage(chatId, `Searching hotels near "${text}"...`);
+  bot.sendMessage(chatId, `🔍 Searching hotels in "${text}"...`);
+
   const hotels = await searchHotels(text);
 
   if (hotels.length === 0) {
-    bot.sendMessage(chatId, 'No hotels found. Try another location.');
+    bot.sendMessage(chatId, '😕 No hotels found. Try another city.');
     return;
   }
 
-  const results = hotels.map(h =>
-    `• ${h.name} — ${h.city} — ⭐ ${h.rating || 'N/A'}`
-  ).join('\n');
+  const results = hotels.slice(0, 5).map(h =>
+    `🏨 ${h.name}\n⭐ ${h.overall_rating || 'N/A'} — 💰 ${h.rate_per_night?.lowest || 'N/A'}/night`
+  ).join('\n\n');
 
-  bot.sendMessage(chatId, `Top hotels:\n${results}`);
+  bot.sendMessage(chatId, `Top hotels in ${text}:\n\n${results}`);
 });
 
-// Polling error log
 bot.on('polling_error', console.error);
